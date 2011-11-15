@@ -1,0 +1,53 @@
+WHAT SHOULD BE MADE:
+
+* Pass file and line to handler
+
+* Similar call intercepts ( strstr of callname? )
+* Object parent intercepts ( catch calls if current object has given class as parent (any level) )
+
+
+
+
+FROM ORIGINAL INTERCEPT EXTENSION:
+
+- intercept
+
+	- user functions
+	- user class methods
+	- internal functions?
+
+	- public/private/protected methods?
+
+- multiple interceptions (chains)
+
+- canceling execution of the intercepted function from the BEFORE intercept
+	- based on return value of the user-space callback
+
+- intercepting methods for specific objects
+
+
+
+0.1 - pre-intercept for user-space functions
+
+		intercept_add('target_function', 'my_intercept_function');
+
+0.1.5 - add post-intercept for user-space functions 
+
+		intercept_add('target_function', 'my_intercept_function', POST_INTERCEPT);
+
+0.2 - add support for internal functions
+
+0.3 - add pre- and post-intercept for user-space class methods
+
+		intercept_add(array('MyClass', 'myMethod'), 'my_intercept_function', POST_INTERCEPT);
+
+0.4 - add passing of target function name & arguments to handler function
+
+0.5 - add interception lists (multiple interceptions)
+
+		intercept_add(array('MyClass', 'myMethod'), 'my_intercept_function', POST_INTERCEPT);
+		intercept_remove(array('MyClass', 'myMethod'), 'my_intercept_function', POST_INTERCEPT);
+
+0.6 - remove all intercepts per function
+
+		intercept_remove_all(func/method [, PRE_INTERCEPT|POST_INTERCEPT])
