@@ -1,0 +1,9 @@
+http://devzone.zend.com/article/1021#Heading12
+http://devzone.zend.com/node/view/id/1022
+http://devzone.zend.com/node/view/id/1023
+http://devzone.zend.com/node/view/id/1024
+http://framework.zend.com/manual/en/
+http://phpbuilder.com/manual/en/zend-api.zend-hash-find.php
+http://www.cplusplus.com/reference/clibrary/cstdlib/
+http://www.phpbuilder.com/manual/en/zend.variables.php
+https://wiki.php.net/internals/engine
