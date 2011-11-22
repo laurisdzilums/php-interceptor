@@ -423,7 +423,7 @@ int log_save(char *intercepted_call, short type, int call_result, zval *returned
 	
 	fprintf(f, "\r\n");
 	fclose(f);
-	chmod(INI_STR("interceptor.log_file"), 0766);
+	chmod(INI_STR("interceptor.log_file"), 0666);
 }
 
 /**
@@ -449,7 +449,7 @@ short depth_test(char *intercepted_call, short type)
 		
 		fprintf(f, "\r\n");
 		fclose(f);
-		chmod(INI_STR("interceptor.log_file"), 0766);
+		chmod(INI_STR("interceptor.log_file"), 0666);
 		
 		return 0;
 	}
