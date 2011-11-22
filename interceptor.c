@@ -82,7 +82,7 @@ zend_module_entry interceptor_module_entry = {
 PHP_INI_BEGIN()
 	PHP_INI_ENTRY("interceptor.max_depth", 3, PHP_INI_ALL, NULL)
 	PHP_INI_ENTRY("interceptor.log_timestamp", "%d.%m.%Y %H:%M:%S", PHP_INI_ALL, NULL)
-	PHP_INI_ENTRY("interceptor.log_file", "/var/log/php_interceptor.txt", PHP_INI_ALL, NULL)
+	PHP_INI_ENTRY("interceptor.log_file", "/var/log/php_interceptor.log", PHP_INI_ALL, NULL)
 PHP_INI_END()
 
 /**
@@ -423,7 +423,7 @@ int log_save(char *intercepted_call, short type, int call_result, zval *returned
 	
 	fprintf(f, "\r\n");
 	fclose(f);
-	chmod(INI_STR("interceptor.log_file"), 0777);
+	chmod(INI_STR("interceptor.log_file"), 0766);
 }
 
 /**
@@ -449,7 +449,7 @@ short depth_test(char *intercepted_call, short type)
 		
 		fprintf(f, "\r\n");
 		fclose(f);
-		chmod(INI_STR("interceptor.log_file"), 0777);
+		chmod(INI_STR("interceptor.log_file"), 0766);
 		
 		return 0;
 	}
