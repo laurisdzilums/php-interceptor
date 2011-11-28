@@ -30,6 +30,10 @@
 #include "ext/standard/info.h"
 #include "php_interceptor.h"
 
+//#ifdef LOG_WITH_SQLITE
+	#include <sqlite3.h>
+//#endif
+
 ZEND_DLEXPORT void interceptor_execute_internal(zend_execute_data *execute_data_ptr, int return_value_used TSRMLS_DC);
 ZEND_DLEXPORT void (*interceptor_old_zend_execute_internal)(zend_execute_data *execute_data_ptr, int return_value_used TSRMLS_DC);
 
@@ -81,8 +85,13 @@ zend_module_entry interceptor_module_entry = {
  */
 PHP_INI_BEGIN()
 	PHP_INI_ENTRY("interceptor.max_depth", 3, PHP_INI_ALL, NULL)
+	PHP_INI_ENTRY("interceptor.log_type", LOG_TEXT, PHP_INI_ALL, NULL)
 	PHP_INI_ENTRY("interceptor.log_timestamp", "%d.%m.%Y %H:%M:%S", PHP_INI_ALL, NULL)
 	PHP_INI_ENTRY("interceptor.log_file", "/var/log/php_interceptor.log", PHP_INI_ALL, NULL)
+	
+//#ifdef LOG_WITH_SQLITE
+	PHP_INI_ENTRY("interceptor.log_sqlite_db", "/var/log/php_interceptor.sqlite3", PHP_INI_ALL, NULL)
+//#endif
 PHP_INI_END()
 
 /**
@@ -146,6 +155,60 @@ PHP_RINIT_FUNCTION(interceptor)
 	time(&rawtime);
 	timeinfo = localtime(&rawtime);
 	strftime(IntG(timestamp), 40, INI_STR("interceptor.log_timestamp"), timeinfo);
+
+//#ifdef LOG_WITH_SQLITE
+	// @TODO: move to MINIT?
+	// If we're using SQLite, make sure that there will be a database and a table
+	if ( INI_INT("interceptor.log_type") == LOG_SQLITE )
+	{
+		sqlite3 *db;
+		int ret;
+		
+		// Open DB file = create DB if not exists
+		ret = sqlite3_open(INI_STR("interceptor.log_sqlite_db"), &db);
+		if (ret)
+		{
+			php_error_docref1(NULL TSRMLS_CC, "sqlite", E_ERROR,
+						  "Unable to connect SQLite database \"%s\". Error: %s!", INI_STR("interceptor.log_sqlite_db"), sqlite3_errmsg(db));
+			
+			return FAILURE;
+		}
+		
+		// Create table
+		char *err_msg;
+		ret = sqlite3_exec(
+			db,
+			"CREATE TABLE IF NOT EXISTS intercepts (\
+				id INTEGER PRIMARY KEY,\
+				timestamp INTEGER,\
+				pid INTEGER,\
+				depth INTEGER,\
+				intercepted STRING,\
+				callname STRING,\
+				file STRING,\
+				line INTEGER,\
+				handler_status STRING,\
+				handler_response STRING\
+			)",
+			NULL, // No callback
+			NULL, // No param to callback
+			&err_msg // Just error message
+		);
+		
+		if (ret)
+		{
+			php_error_docref1(NULL TSRMLS_CC, "sqlite", E_ERROR,
+						  "Unable to create SQLite table. Error: \"%s\"!", err_msg);
+	  		
+			sqlite3_free(err_msg);
+			sqlite3_close(db);
+			
+			return FAILURE;
+		}
+		
+		sqlite3_close(db);
+	}
+//#endif	
 	
 	return SUCCESS;
 }
