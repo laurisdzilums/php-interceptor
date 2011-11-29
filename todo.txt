@@ -5,6 +5,8 @@ WHAT SHOULD BE MADE:
 * Similar call intercepts ( strstr of callname? )
 * Object parent intercepts ( catch calls if current object has given class as parent (any level) )
 
+* Use of error hooks on zend_error_cb and zend_throw_exception_hook
+
 
 
 
