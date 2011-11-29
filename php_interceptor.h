@@ -59,9 +59,11 @@ ZEND_END_MODULE_GLOBALS(interceptor)
 #define INTERCEPT_BEFORE 1
 #define INTERCEPT_AFTER 2
 
+#define FAILURE_MULTI_FAULT 666
+
 #define LOG_TEXT 1
 #define LOG_SQLITE 2
 
-//#define LOG_WITH_SQLITE
+#define LOG_WITH_SQLITE
 
 #endif	/* PHP_INTERCEPTOR_H */

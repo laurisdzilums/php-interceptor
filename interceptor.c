@@ -30,9 +30,9 @@
 #include "ext/standard/info.h"
 #include "php_interceptor.h"
 
-//#ifdef LOG_WITH_SQLITE
+#ifdef LOG_WITH_SQLITE
 	#include <sqlite3.h>
-//#endif
+#endif
 
 ZEND_DLEXPORT void interceptor_execute_internal(zend_execute_data *execute_data_ptr, int return_value_used TSRMLS_DC);
 ZEND_DLEXPORT void (*interceptor_old_zend_execute_internal)(zend_execute_data *execute_data_ptr, int return_value_used TSRMLS_DC);
@@ -89,9 +89,9 @@ PHP_INI_BEGIN()
 	PHP_INI_ENTRY("interceptor.log_timestamp", "%d.%m.%Y %H:%M:%S", PHP_INI_ALL, NULL)
 	PHP_INI_ENTRY("interceptor.log_file", "/var/log/php_interceptor.log", PHP_INI_ALL, NULL)
 	
-//#ifdef LOG_WITH_SQLITE
+#ifdef LOG_WITH_SQLITE
 	PHP_INI_ENTRY("interceptor.log_sqlite_db", "/var/log/php_interceptor.sqlite3", PHP_INI_ALL, NULL)
-//#endif
+#endif
 PHP_INI_END()
 
 /**
@@ -156,10 +156,10 @@ PHP_RINIT_FUNCTION(interceptor)
 	timeinfo = localtime(&rawtime);
 	strftime(IntG(timestamp), 40, INI_STR("interceptor.log_timestamp"), timeinfo);
 
-//#ifdef LOG_WITH_SQLITE
+#ifdef LOG_WITH_SQLITE
 	// @TODO: move to MINIT?
 	// If we're using SQLite, make sure that there will be a database and a table
-	if ( INI_INT("interceptor.log_type") == LOG_SQLITE )
+	if (INI_INT("interceptor.log_type") == LOG_SQLITE)
 	{
 		sqlite3 *db;
 		int ret;
@@ -180,10 +180,10 @@ PHP_RINIT_FUNCTION(interceptor)
 			db,
 			"CREATE TABLE IF NOT EXISTS intercepts (\
 				id INTEGER PRIMARY KEY,\
-				timestamp INTEGER,\
+				timestamp STRING,\
 				pid INTEGER,\
 				depth INTEGER,\
-				intercepted STRING,\
+				type STRING,\
 				callname STRING,\
 				file STRING,\
 				line INTEGER,\
@@ -207,8 +207,9 @@ PHP_RINIT_FUNCTION(interceptor)
 		}
 		
 		sqlite3_close(db);
+		chmod(INI_STR("interceptor.log_sqlite_db"), 0666);
 	}
-//#endif	
+#endif	
 	
 	return SUCCESS;
 }
@@ -426,35 +427,98 @@ char *interceptor_get_active_function_name(zend_op_array *op_array TSRMLS_DC)
 
 /**
  *
- * Write common log data
+ * Write log data to text file (default option)
  *
- * @param FILE *f Opened file for writing
  * @param char *intercepted_call Call name
- * @param short type Before/after
+ * @param char *timestamp Formatted timestamp
+ * @param int process_id Process id
+ * @param short depth Current depth
+ * @param char *intercept_type "bef"/"aft"
+ * @param char *filename Filename of call
+ * @param int line Line number of call
+ * @param char *handler_call_status Status of handler call
+ * @param char *returned_string Returned value of handler call
  *
  */
-void log_write_common(FILE *f, char *intercepted_call, short type)
+void log_write_text(char *intercepted_call, char *timestamp, int process_id, short depth,
+	char *intercept_type, char *filename, int line, char *handler_call_status, char *returned_string)
 {
-	fprintf(f, "%s ", IntG(timestamp));
-	fprintf(f, "%d ", getpid());
-	fprintf(f, "%d ", IntG(depth));
+	FILE *f;
+	f = fopen(INI_STR("interceptor.log_file"), "a+");
 	
-	if (type == INTERCEPT_BEFORE)
-	{
-		fprintf(f, "bef ");
-	}
-	else
-	{
-		fprintf(f, "aft ");
-	}
+	fprintf(f, "%s %d %d %s %s \"%s\" %d %s %s\r\n", timestamp, process_id, depth, intercept_type, intercepted_call, filename, line, handler_call_status, returned_string);
 	
-	// Call name
-	fprintf(f, "%s ", intercepted_call);
-	
-	// Call details
-	fprintf(f, "\"%s\" ", zend_get_executed_filename());
-	fprintf(f, "%d ", zend_get_executed_lineno());
+	fclose(f);
+	chmod(INI_STR("interceptor.log_file"), 0666);
 }
+
+#ifdef LOG_WITH_SQLITE
+/**
+ *
+ * Write log data to SQLite database
+ *
+ * @param char *intercepted_call Call name
+ * @param char *timestamp Formatted timestamp
+ * @param int process_id Process id
+ * @param short depth Current depth
+ * @param char *intercept_type "bef"/"aft"
+ * @param char *filename Filename of call
+ * @param int line Line number of call
+ * @param char *handler_call_status Status of handler call
+ * @param char *returned_string Returned value of handler call
+ *
+ */
+void log_write_sqlite(char *intercepted_call, char *timestamp, int process_id, short depth,
+	char *intercept_type, char *filename, int line, char *handler_call_status, char *returned_string)
+{
+	sqlite3 *db;
+	int ret;
+	
+	// Connect DB
+	// :TODO: refactor to function (this & RINIT)
+	ret = sqlite3_open(INI_STR("interceptor.log_sqlite_db"), &db);
+	if (ret)
+	{
+		php_error_docref1(NULL TSRMLS_CC, "sqlite", E_ERROR,
+					  "Unable to connect SQLite database \"%s\". Error: %s!", INI_STR("interceptor.log_sqlite_db"), sqlite3_errmsg(db));
+		
+		return;
+	}
+	
+	// Prepare query - %q to escape strings
+	char *sql = sqlite3_mprintf("INSERT INTO intercepts\
+			(timestamp, pid, depth, type, callname, file, line, handler_status, handler_response)\
+			VALUES(\
+			'%s', %d, %d, '%q', '%q', '%q', %d, '%q', '%q'\
+			);",
+		timestamp, process_id, depth, intercept_type, intercepted_call, filename, line, handler_call_status, returned_string);
+
+	// Insert entry	
+	char *err_msg;
+	ret = sqlite3_exec(
+		db,
+		sql,
+		NULL, // No callback
+		NULL, // No param to callback
+		&err_msg // Just error message
+	);
+	sqlite3_free(sql);
+	
+	// :TODO: refactor to universal error message (this & RINIT)
+	if (ret)
+	{
+		php_error_docref1(NULL TSRMLS_CC, "sqlite", E_ERROR,
+					  "Unable to insert row. Error: \"%s\"!", err_msg);
+  		
+		sqlite3_free(err_msg);
+		sqlite3_close(db);
+		
+		return;
+	}
+	
+	sqlite3_close(db);
+}
+#endif
 
 /**
  *
@@ -466,27 +530,68 @@ void log_write_common(FILE *f, char *intercepted_call, short type)
  * @param zval *returned_value Value returned by handler function
  *
  */
-int log_save(char *intercepted_call, short type, int call_result, zval *returned_value)
+void log_save(char *intercepted_call, short type, int call_result, zval *returned_value)
 {
-	FILE *f;
-	f = fopen(INI_STR("interceptor.log_file"), "a+");
-	log_write_common(f, intercepted_call, type);
+	// Gather up all vars for logging
+	char *timestamp = IntG(timestamp);
+	int process_id = getpid();
+	short depth = IntG(depth);
 	
+	// Where was it intercepted?
+	char *intercept_type = "aft";
+	if (type == INTERCEPT_BEFORE)
+	{
+		intercept_type = "bef";
+	}
+	
+	char *filename = zend_get_executed_filename();
+	int line = zend_get_executed_lineno();
+	
+	// What happened?
+	char *handler_call_status;
 	if (call_result == SUCCESS)
 	{
-		fprintf(f, "handler_call_ok");
-		
-		convert_to_string(returned_value);
-		fprintf(f, " %s", Z_STRVAL_P(returned_value));
+		handler_call_status = "handler_call_ok";
+	}
+	else if (call_result == FAILURE)
+	{
+		handler_call_status = "handler_call_failed";
+	}
+	else if (call_result == FAILURE_MULTI_FAULT)
+	{
+		handler_call_status = "gone_too_deep";
 	}
 	else
 	{
-		fprintf(f, "handler_call_failed");
+		handler_call_status = "unknown";
 	}
 	
-	fprintf(f, "\r\n");
-	fclose(f);
-	chmod(INI_STR("interceptor.log_file"), 0666);
+	// Get return value of handler call
+	char *returned_string = "";
+	if ( returned_value != NULL )
+	{
+		convert_to_string(returned_value);
+		returned_string = Z_STRVAL_P(returned_value);
+	}
+	
+	// Select logger function
+	if (0)
+	{
+		// This is for auto-calling default, if no other logging types are defined, eg. compiled w/a SQLite
+	}
+#ifdef LOG_WITH_SQLITE
+	else if (INI_INT("interceptor.log_type") == LOG_SQLITE)
+	{
+		log_write_sqlite(intercepted_call, timestamp, process_id, depth,
+			intercept_type, filename, line, handler_call_status, returned_string);
+	}
+#endif
+	else
+	{
+		// This is default
+		log_write_text(intercepted_call, timestamp, process_id, depth,
+			intercept_type, filename, line, handler_call_status, returned_string);
+	}
 }
 
 /**
@@ -503,17 +608,7 @@ short depth_test(char *intercepted_call, short type)
 {
 	if ( IntG(depth) > INI_INT("interceptor.max_depth") )
 	{
-		// Log this exception
-		FILE *f;
-		f = fopen(INI_STR("interceptor.log_file"), "a+");
-		log_write_common(f, intercepted_call, type);
-		
-		fprintf(f, "gone_too_deep");
-		
-		fprintf(f, "\r\n");
-		fclose(f);
-		chmod(INI_STR("interceptor.log_file"), 0666);
-		
+		log_save(intercepted_call, type, FAILURE_MULTI_FAULT, NULL);
 		return 0;
 	}
 	else

@@ -18,7 +18,17 @@ cp modules/interceptor.so <php extension dir>
 
 sudo make clean && sudo make && sudo cp modules/interceptor.so /usr/lib64/php/modules/interceptor.so
 
+
+
+#################################
+	Compilation notes
+#################################
+
+You can compile with or without SQLite support, just comment out "#define LOG_WITH_SQLITE" in php_interceptor.h
+
 If errors arise on sqlite functions, add "LDFLAGS = -lsqlite3" to Makefile
+
+
 
 #################################
 	php.ini
@@ -42,6 +52,8 @@ interceptor.log_file = "/var/log/php_interceptor.log"
 ; Where to save logs (SQLite)
 interceptor.log_sqlite_db = "/var/log/php_interceptor.sqlite3"
 
+
+
 #################################
 	Using with PHP
 #################################
@@ -62,6 +74,8 @@ Callname can be:
 For example, intercepting exceptions can be done with
 interceptor_add_callname('Exception->__construct', 'my_exception_intercept_handler', INTERCEPT_BEFORE);
 
+
+
 #################################
 	Handler functions
 #################################
@@ -75,9 +89,13 @@ function my_exception_intercept_handler($callname)
 	return "log me!";
 }
 
+
+
 #################################
 	Log file format
 #################################
+
+For default text logging ( log_type = 1 ):
 
 <timestamp>
 <process id>
@@ -89,4 +107,22 @@ function my_exception_intercept_handler($callname)
 <handler_call_ok | handler_call_failed | gone_too_deep (nesting limit reached)>
 <handler response string>
 
+Example:
+
 08.11.2011 15:18:00 5020 1 bef Exception->__construct "/var/www/intercept.php" 132 handler_call_ok handler says: intercepted Exception->__construct
+
+
+With SQLite ( log_type = 2 ):
+
+intercepts (
+	id INTEGER PRIMARY KEY,
+	timestamp STRING,
+	pid INTEGER,
+	depth INTEGER,
+	type STRING,
+	callname STRING,
+	file STRING,
+	line INTEGER,
+	handler_status STRING,
+	handler_response STRING
+)
