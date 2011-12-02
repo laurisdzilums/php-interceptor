@@ -133,6 +133,80 @@ PHP_MSHUTDOWN_FUNCTION(interceptor)
 	return SUCCESS;
 }
 
+#ifdef LOG_WITH_SQLITE
+/**
+ *
+ * Connect to SQLite
+ *
+ * @param sqlite3 **db
+ *		
+ */
+int sqlite_connect(sqlite3 **db)
+{
+	int ret;
+	
+	// Open DB file = create DB if not exists
+	ret = sqlite3_open(INI_STR("interceptor.log_sqlite_db"), db);
+	if (ret)
+	{
+		php_error_docref1(NULL TSRMLS_CC, "sqlite", E_ERROR,
+					  "Unable to connect SQLite database \"%s\". Error: %s!", INI_STR("interceptor.log_sqlite_db"), sqlite3_errmsg(db));
+		
+		return FAILURE;
+	}
+	
+	return SUCCESS;
+}
+
+/**
+ *
+ * Execute a SQLite query (no escaping, must prepare before)
+ *
+ * @param sqlite3 *db
+ * @param char *query
+ *		
+ */
+int sqlite_query(sqlite3 *db, char *query)
+{
+	int ret;
+	char *err_msg;
+	
+	ret = sqlite3_exec(
+		db,
+		query,
+		NULL, // No callback
+		NULL, // No param to callback
+		&err_msg // Just error message
+	);
+	
+	if (ret)
+	{
+		php_error_docref1(NULL TSRMLS_CC, "sqlite", E_ERROR,
+					  "Unable to execute SQLite query. Error: \"%s\"!", err_msg);
+  		
+		sqlite3_free(err_msg);
+		sqlite3_close(db);
+		
+		return FAILURE;
+	}
+	
+	return SUCCESS;
+}
+
+/**
+ *
+ * Disconnect from SQLite
+ *
+ * @param sqlite3 *db
+ *
+ */
+void sqlite_disconnect(sqlite3 *db)
+{
+	sqlite3_close(db);
+	chmod(INI_STR("interceptor.log_sqlite_db"), 0666);
+}
+#endif
+
 /**
  *
  * Request initialization
@@ -162,23 +236,13 @@ PHP_RINIT_FUNCTION(interceptor)
 	if (INI_INT("interceptor.log_type") == LOG_SQLITE)
 	{
 		sqlite3 *db;
-		int ret;
-		
-		// Open DB file = create DB if not exists
-		ret = sqlite3_open(INI_STR("interceptor.log_sqlite_db"), &db);
-		if (ret)
+		if (sqlite_connect(&db) != SUCCESS )
 		{
-			php_error_docref1(NULL TSRMLS_CC, "sqlite", E_ERROR,
-						  "Unable to connect SQLite database \"%s\". Error: %s!", INI_STR("interceptor.log_sqlite_db"), sqlite3_errmsg(db));
-			
 			return FAILURE;
 		}
 		
-		// Create table
-		char *err_msg;
-		ret = sqlite3_exec(
-			db,
-			"CREATE TABLE IF NOT EXISTS intercepts (\
+		if (
+			sqlite_query(db, "CREATE TABLE IF NOT EXISTS intercepts (\
 				id INTEGER PRIMARY KEY,\
 				timestamp STRING,\
 				pid INTEGER,\
@@ -189,25 +253,13 @@ PHP_RINIT_FUNCTION(interceptor)
 				line INTEGER,\
 				handler_status STRING,\
 				handler_response STRING\
-			)",
-			NULL, // No callback
-			NULL, // No param to callback
-			&err_msg // Just error message
-		);
-		
-		if (ret)
+			)") != SUCCESS
+		)
 		{
-			php_error_docref1(NULL TSRMLS_CC, "sqlite", E_ERROR,
-						  "Unable to create SQLite table. Error: \"%s\"!", err_msg);
-	  		
-			sqlite3_free(err_msg);
-			sqlite3_close(db);
-			
 			return FAILURE;
 		}
 		
-		sqlite3_close(db);
-		chmod(INI_STR("interceptor.log_sqlite_db"), 0666);
+		sqlite_disconnect(db);
 	}
 #endif	
 	
@@ -472,16 +524,8 @@ void log_write_sqlite(char *intercepted_call, char *timestamp, int process_id, s
 	char *intercept_type, char *filename, int line, char *handler_call_status, char *returned_string)
 {
 	sqlite3 *db;
-	int ret;
-	
-	// Connect DB
-	// :TODO: refactor to function (this & RINIT)
-	ret = sqlite3_open(INI_STR("interceptor.log_sqlite_db"), &db);
-	if (ret)
+	if (sqlite_connect(&db) != SUCCESS)
 	{
-		php_error_docref1(NULL TSRMLS_CC, "sqlite", E_ERROR,
-					  "Unable to connect SQLite database \"%s\". Error: %s!", INI_STR("interceptor.log_sqlite_db"), sqlite3_errmsg(db));
-		
 		return;
 	}
 	
@@ -492,31 +536,15 @@ void log_write_sqlite(char *intercepted_call, char *timestamp, int process_id, s
 			'%s', %d, %d, '%q', '%q', '%q', %d, '%q', '%q'\
 			);",
 		timestamp, process_id, depth, intercept_type, intercepted_call, filename, line, handler_call_status, returned_string);
-
-	// Insert entry	
-	char *err_msg;
-	ret = sqlite3_exec(
-		db,
-		sql,
-		NULL, // No callback
-		NULL, // No param to callback
-		&err_msg // Just error message
-	);
-	sqlite3_free(sql);
 	
-	// :TODO: refactor to universal error message (this & RINIT)
-	if (ret)
+	if (sqlite_query(db, sql) != SUCCESS)
 	{
-		php_error_docref1(NULL TSRMLS_CC, "sqlite", E_ERROR,
-					  "Unable to insert row. Error: \"%s\"!", err_msg);
-  		
-		sqlite3_free(err_msg);
-		sqlite3_close(db);
-		
+		sqlite3_free(sql);
 		return;
 	}
-	
-	sqlite3_close(db);
+	sqlite3_free(sql);
+
+	sqlite_disconnect(db);
 }
 #endif
 
